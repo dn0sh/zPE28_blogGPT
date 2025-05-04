@@ -8,26 +8,37 @@ app = FastAPI()
 
 # Получаем API ключи из переменных окружения
 openai.api_key = os.environ.get("OPENAI_API_KEY")
-newsapi_key = os.environ.get("NEWSAPI_KEY")
+CURRENTSAPI_KEY = os.environ.get("CURRENTSAPI_KEY")
 
 if not openai.api_key:
     raise ValueError("Переменная окружения OPENAI_API_KEY не установлена")
-if not newsapi_key:
-    raise ValueError("Переменная окружения NEWSAPI_KEY не установлена")
+if not CURRENTSAPI_KEY:
+    raise ValueError("Переменная окружения CURRENTSAPI_KEY не установлена")
+
 
 class Topic(BaseModel):
     topic: str
 
-def get_recent_news(topic):
-    url = f"https://newsapi.org/v2/everything?q={topic}&apiKey={newsapi_key}"
-    response = requests.get(url)
+
+# Функция для получения последних новостей на заданную тему
+def get_recent_news(topic: str):
+    url = "https://api.currentsapi.services/v1/latest-news"  # URL API для получения новостей
+    params = {
+        "language": "en",  # Задаем язык новостей
+        "keywords": topic,  # Ключевые слова для поиска новостей
+        "apiKey": CURRENTSAPI_KEY  # Передаем API ключ
+    }
+    response = requests.get(url, params=params)  # Выполняем GET-запрос к API
     if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Ошибка при получении данных из NewsAPI")
-    articles = response.json().get("articles", [])
-    if not articles:
-        return "Свежих новостей не найдено."
-    recent_news = [article["title"] for article in articles[:1]]
-    return "\n".join(recent_news)
+        # Если статус код не 200, выбрасываем исключение с подробностями ошибки
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {response.text}")
+    # Извлекаем новости из ответа, если они есть
+    news_data = response.json().get("news", [])
+    if not news_data:
+        return "Свежих новостей не найдено."  # Сообщение, если новости отсутствуют
+    # Возвращаем заголовки первых 5 новостей, разделенных переносами строк
+    return "\n".join([article["title"] for article in news_data[:5]])
+
 
 def generate_post(topic):
     recent_news = get_recent_news(topic)
@@ -36,7 +47,7 @@ def generate_post(topic):
     prompt_title = f"Придумайте привлекательный заголовок для поста на тему: {topic}"
     try:
         response_title = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Используем модель gpt-4o-mini
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt_title}],
             max_tokens=50,
             n=1,
@@ -50,7 +61,7 @@ def generate_post(topic):
     prompt_meta = f"Напишите краткое, но информативное мета-описание для поста с заголовком: {title}"
     try:
         response_meta = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Используем модель gpt-4o-mini
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt_meta}],
             max_tokens=100,
             n=1,
@@ -68,7 +79,7 @@ def generate_post(topic):
     )
     try:
         response_post = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Используем модель gpt-4o-mini
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt_post}],
             max_tokens=1000,
             n=1,
@@ -84,14 +95,17 @@ def generate_post(topic):
         "post_content": post_content
     }
 
+
 @app.post("/generate-post")
 async def generate_post_api(topic: Topic):
     generated_post = generate_post(topic.topic)
     return generated_post
 
+
 @app.get("/heartbeat")
 async def heartbeat_api():
     return {"status": "OK"}
+
 
 if __name__ == "__main__":
     import uvicorn
